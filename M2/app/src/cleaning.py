@@ -1146,18 +1146,23 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=mapping_dict)
     return df
 
-def clean_data(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def clean_data(dataset_path: str, save_dfs: bool=True, given_df: pd.DataFrame=None) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Clean the data by removing rows with missing values and renaming columns.
 
     Args:
     - dataset_path (str): The path to the dataset to clean.
+    - save_dfs (bool): Whether to save the cleaned DataFrames to CSV files. Defaults to True.
+    - given_df (pd.DataFrame): The DataFrame to clean. Defaults to None.
 
     Returns:
     - Tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the cleaned DataFrame and the global lookup table.
     """
     # Load the data
-    df = load_data(dataset_path)
+    if given_df is None:
+        df = load_data(dataset_path)
+    else:
+        df = given_df
 
     # tidy up the column names
     df = tidy_up_columns(df)
@@ -1252,12 +1257,14 @@ def clean_data(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Rename columns
     df = rename_columns(df)
 
-    df.to_csv('../data/cleaned_dataset/fintech_data_MET_P2_52_1008_clean.csv')
-    global_lookup_table.to_csv('../data/cleaned_dataset/lookup_table_MET_P2_52_1008.csv')
+    # Save the cleaned dataset
+    if save_dfs:
+        df.to_csv('./data/cleaned_dataset/fintech_data_MET_P2_52_1008_clean.csv')
+        global_lookup_table.to_csv('./data/cleaned_dataset/lookup_table_MET_P2_52_1008.csv', index=False)
 
     return df, global_lookup_table
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    dataset_path = '../data/dataset/fintech_data_29_52_1008.csv'
-    df, global_lookup_table = clean_data(dataset_path=dataset_path)
+#     dataset_path = '../data/dataset/fintech_data_29_52_1008.csv'
+#     df, global_lookup_table = clean_data(dataset_path=dataset_path)
