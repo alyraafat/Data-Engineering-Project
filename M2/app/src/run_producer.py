@@ -13,7 +13,7 @@ def start_producer(id, kafka_url='localhost:9092', topic_name='fintech'):
       "TOPIC":topic_name,
       'debug': 'True'
     },
-    network='host'
+    network='app_default'
   )
 
   print('Container initialized:', container.id)

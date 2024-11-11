@@ -5,6 +5,10 @@ from typing import List, Tuple, Union
 from scipy.stats import boxcox
 import requests
 from bs4 import BeautifulSoup
+import json
+from sqlalchemy import create_engine
+import pickle as pkl
+from db import get_table
 
 
 def load_data(path: str) -> pd.DataFrame:
@@ -118,6 +122,7 @@ def sqrt_transform_col(df: pd.DataFrame, col: str) -> pd.DataFrame:
     return df
 
 
+boxcox_lambdas = pd.DataFrame(columns=['Column', 'Lambda'])
 
 def apply_boxcox(df: pd.DataFrame, column_name: str) -> Tuple[pd.DataFrame, float]:
     """
@@ -137,23 +142,10 @@ def apply_boxcox(df: pd.DataFrame, column_name: str) -> Tuple[pd.DataFrame, floa
 
     df[f'{column_name}_boxcox'] = transformed_data
 
-    # fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    # sns.histplot(df[column_name], ax=axes[0], kde=True)
-    # axes[0].set_title(f'Original Distribution of {column_name}')
-
-    # sns.histplot(transformed_data, ax=axes[1], kde=True)
-    # axes[1].set_title(f'Box-Cox Transformed Distribution of {column_name} (λ = {fitted_lambda:.2f})')
-
-    # plt.show()
-
-    # fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-    # probplot(df[column_name], dist="norm", plot=ax[0])
-    # ax[0].set_title(f"QQ Plot of Original {column_name}")
-    # probplot(transformed_data, dist="norm", plot=ax[1])
-    # ax[1].set_title(f"QQ Plot of Transformed {column_name} (λ = {fitted_lambda:.2f})")
-
-    # plt.show()
+    global boxcox_lambdas
+    orig_col_name = get_orig_col_name(column_name)
+    new_row = {'Column': orig_col_name, 'Lambda': fitted_lambda}
+    boxcox_lambdas = pd.concat([boxcox_lambdas, pd.DataFrame([new_row])], ignore_index=True)
 
     return df, fitted_lambda
 
@@ -179,9 +171,11 @@ def normalization(df: pd.DataFrame, col: str, type_of_norm: str) -> pd.DataFrame
     elif type_of_norm == 'min_max':
         scaler = MinMaxScaler()
     df[f'{orig_col_name}_norm'] = scaler.fit_transform(df[[col]])
+
     return df
 
 global_lookup_table = pd.DataFrame(columns=['Column', 'Original', 'Encoded'])
+multivariate_lookup_table = pd.DataFrame(columns=['column_used_for_imputation', 'technique', 'column_imputed', 'bins_used', 'groups_with_corresponding_values'])
 
 def encode_col(df: pd.DataFrame, type_of_encoding: str, col_name: str, need_to_sort: bool=False) -> pd.DataFrame:
     """
@@ -321,7 +315,7 @@ def impute_emp_length_by_income_bin(df: pd.DataFrame, bins: int=5, col_name: str
     - DataFrame with imputed 'Emp Length' column.
     """
     
-    df[f'{col_name_2}_bins'] = pd.qcut(df[col_name_2], q=bins, labels=False)
+    df[f'{col_name_2}_bins'], bin_edges = pd.qcut(df[col_name_2], q=bins, labels=False, retbins=True)
     
     income_bin_mode_emp_length = df.groupby(f'{col_name_2}_bins')[col_name].agg(lambda x: x.mode().iloc[0])
     
@@ -330,6 +324,19 @@ def impute_emp_length_by_income_bin(df: pd.DataFrame, bins: int=5, col_name: str
         lambda row: income_bin_mode_emp_length[row[f'{col_name_2}_bins']] if pd.isna(row[col_name]) else row[col_name],
         axis=1
     )
+    print(f'income_bin_mode_emp_length: {income_bin_mode_emp_length.to_dict()}')
+    print(f'bin_edges: {bin_edges.tolist()}')
+    global multivariate_lookup_table
+    modes_list = income_bin_mode_emp_length.tolist()
+    bin_edges_with_mode_values = [(f'{bin_edges[i-1]}-{bin_edges[i]}', modes_list[i - 1]) for i in range(1,len(bin_edges))]
+    print(f'bin_edges_with_mode_values: {bin_edges_with_mode_values}')
+    lookup_table = pd.DataFrame(columns=['column_used_for_imputation', 'technique', 'column_imputed', 'bins_used', 'groups_with_corresponding_values'])
+    lookup_table['column_used_for_imputation'] = [col_name_2]
+    lookup_table['technique'] = ['mode']
+    lookup_table['column_imputed'] = [col_name]
+    lookup_table['bins_used'] = [json.dumps(bin_edges.tolist())]
+    lookup_table['groups_with_corresponding_values'] = [json.dumps(bin_edges_with_mode_values)]
+    multivariate_lookup_table = pd.concat([multivariate_lookup_table, lookup_table], ignore_index=True)
     
     return df
 
@@ -673,6 +680,18 @@ def impute_int_rate(df: pd.DataFrame, col_name: str, col_used_for_imputation: st
         axis=1
     )
 
+    global multivariate_lookup_table
+    grade_mean_int_rate_dict = grade_mean_int_rate.to_dict()
+    grade_mean_int_rate_tuples = list(grade_mean_int_rate_dict.items())
+    print(f'grade_mean_int_rate_tuples: {grade_mean_int_rate_tuples}')
+    lookup_table = pd.DataFrame(columns=['column_used_for_imputation', 'technique', 'column_imputed', 'bins_used'])
+    lookup_table['column_used_for_imputation'] = [col_used_for_imputation]
+    lookup_table['technique'] = ['mean']
+    lookup_table['column_imputed'] = [col_name]
+    lookup_table['bins_used'] = [None]
+    lookup_table['groups_with_corresponding_values'] = [json.dumps(grade_mean_int_rate_tuples)]
+    multivariate_lookup_table = pd.concat([multivariate_lookup_table, lookup_table], ignore_index=True)
+
     return df
 
 def clean_int_rate(df: pd.DataFrame) -> pd.DataFrame:
@@ -959,7 +978,7 @@ def calculate_installment_per_month(
     return df
 
 # normalization
-def normalize_columns(df: pd.DataFrame, numeric_cols: List[str], norm_type: str='minmax') -> pd.DataFrame:
+def normalize_columns(df: pd.DataFrame, numeric_cols: List[str], norm_type: str='minmax', is_fit: bool=False) -> pd.DataFrame:
     """
     Normalizes specified numeric columns in the dataframe using Min-Max or Z-score scaling.
     
@@ -967,6 +986,7 @@ def normalize_columns(df: pd.DataFrame, numeric_cols: List[str], norm_type: str=
     - df: DataFrame to be normalized
     - numeric_cols: List of column names to be normalized
     - norm_type: Type of normalization ('minmax' or 'z-score')
+    - is_fit: If False, fit the scaler to the data. If True, use the previously fitted scaler.
     
     Returns:
     - DataFrame with normalized columns
@@ -978,24 +998,32 @@ def normalize_columns(df: pd.DataFrame, numeric_cols: List[str], norm_type: str=
     else: 
         scaler = StandardScaler()
 
-    df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+    if not is_fit:
+        df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+        with open('./data/cleaned_dataset/scaler.pkl', 'wb') as f:
+            pkl.dump(scaler, f)
+    else:
+        with open('./data/cleaned_dataset/scaler.pkl', 'rb') as f:
+            scaler = pkl.load(f)
+        df[numeric_cols] = scaler.transform(df[numeric_cols])
     
     return df
 
-def normalize_numeric_cols(df: pd.DataFrame, norm_type: str='minmax') -> pd.DataFrame:
+def normalize_numeric_cols(df: pd.DataFrame, norm_type: str='minmax', is_fit: bool=False) -> pd.DataFrame:
     """
     Normalizes all numeric columns in the dataframe using Min-Max or Z-score scaling.
 
     Args:
     - df (pd.DataFrame): The input DataFrame.
     - norm_type (str): The type of normalization. Defaults to 'minmax'.
+    - is_fit (bool): If False, fit the scaler to the data. If True, use the previously fitted scaler.
 
     Returns:
     - pd.DataFrame: The input DataFrame with normalized numeric columns.
     """
 
     numeric_cols = ['annual_inc_log', 'annual_inc_joint_imputed', 'avg_cur_bal_boxcox', 'tot_cur_bal_boxcox','loan_amount_sqrt','funded_amount_sqrt', 'int_rate_imputed', 'installment_per_month']
-    df = normalize_columns(df, numeric_cols, norm_type=norm_type)
+    df = normalize_columns(df, numeric_cols, norm_type=norm_type, is_fit=is_fit)
     return df
 
 # bonus task
@@ -1146,23 +1174,18 @@ def rename_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=mapping_dict)
     return df
 
-def clean_data(dataset_path: str, save_dfs: bool=True, given_df: pd.DataFrame=None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def clean_data(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Clean the data by removing rows with missing values and renaming columns.
 
     Args:
     - dataset_path (str): The path to the dataset to clean.
-    - save_dfs (bool): Whether to save the cleaned DataFrames to CSV files. Defaults to True.
-    - given_df (pd.DataFrame): The DataFrame to clean. Defaults to None.
 
     Returns:
     - Tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the cleaned DataFrame and the global lookup table.
     """
     # Load the data
-    if given_df is None:
-        df = load_data(dataset_path)
-    else:
-        df = given_df
+    df = load_data(dataset_path)
 
     # tidy up the column names
     df = tidy_up_columns(df)
@@ -1258,13 +1281,443 @@ def clean_data(dataset_path: str, save_dfs: bool=True, given_df: pd.DataFrame=No
     df = rename_columns(df)
 
     # Save the cleaned dataset
-    if save_dfs:
-        df.to_csv('./data/cleaned_dataset/fintech_data_MET_P2_52_1008_clean.csv')
-        global_lookup_table.to_csv('./data/cleaned_dataset/lookup_table_MET_P2_52_1008.csv', index=False)
+    cleaned_dir_path = './data/cleaned_dataset'
+    df.to_csv(f'{cleaned_dir_path}/fintech_data_MET_P2_52_1008_clean.csv')
+    global_lookup_table.to_csv(f'{cleaned_dir_path}/lookup_table_MET_P2_52_1008.csv', index=False)
+    multivariate_lookup_table.to_csv(f'{cleaned_dir_path}/multivariate_lookup_table_MET_P2_52_1008.csv', index=False)
+    boxcox_lambdas.to_csv(f'{cleaned_dir_path}/boxcox_lambdas_MET_P2_52_1008.csv', index=False)
 
-    return df, global_lookup_table
+    return df, global_lookup_table, multivariate_lookup_table, boxcox_lambdas
+
+##----------------------------------------------------------------------------
+## Processing Messages
+def apply_boxcox_for_processing(df: pd.DataFrame, col_name: str) -> pd.DataFrame:
+    """
+    Apply box-cox transformation to a column in the dataframe for processing.
+
+    Args:
+    - df (pd.DataFrame): Dataframe to process.
+    - col_name (str): Name of the column to apply box-cox transformation.
+
+    Returns:
+    - pd.DataFrame: Dataframe with the column transformed.
+    """
+    boxcox_lambdas_df = get_table('boxcox_lambdas_MET_P2_52_1008')
+    orig_col_name = get_orig_col_name(col_name)
+    boxcox_lambda = boxcox_lambdas_df[boxcox_lambdas_df['Column'] == orig_col_name]['Lambda'].values[0]
+    df[f'{orig_col_name}_boxcox'] = boxcox(df[col_name], boxcox_lambda)
+    return df
+
+def encode_cols_for_processing(df: pd.DataFrame, col_name: str, encoding_type: str) -> pd.DataFrame:
+    """
+    Encode a column in the dataframe for processing.
+
+    Args:
+    - df (pd.DataFrame): Dataframe to process.
+    - col_name (str): Name of the column to encode.
+    - encoding_type (str): Type of encoding to apply.
+
+    Returns:
+    - pd.DataFrame: Dataframe with the column encoded.
+    """
+    assert encoding_type in ['label', 'onehot'], "Invalid encoding type"
+    if encoding_type == 'onehot':
+        cleaned_df = get_table('fintech_data_MET_P2_52_1008_clean')
+        orig_col_name = get_orig_col_name(col_name)
+        col_names = [col for col in cleaned_df.columns if orig_col_name in col]
+        # print(col_names)
+        df = encode_col(df, encoding_type, col_name)
+        for col in col_names:
+            if col not in df.columns:
+                df[col] = 0
+    elif encoding_type == 'label':
+        lookup_df = get_table('lookup_table_MET_P2_52_1008')
+        label_values_df = lookup_df[lookup_df['Column'] == col_name]
+        # print(label_values_df)
+        def apply_label_encoding(col_value: Union[str,bool]) -> int:
+            # print(col_value)
+            # print(label_values_df[label_values_df['Original'] == str(col_value)]['Encoded'])
+            return label_values_df[label_values_df['Original'] == str(col_value)]['Encoded'].values[0]
+        
+        df[f'{col_name}_labelEncoded'] = df[col_name].apply(apply_label_encoding)
+
+    return df
+
+# process emp_length
+def impute_emp_length_for_processing(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Impute missing values in the 'emp_length' column based on the mode of each income bin.
+
+    Args:
+    - df (pd.DataFrame): DataFrame containing the 'emp_length' column.
+
+    Returns:
+    - pd.DataFrame: DataFrame with imputed 'emp_length' values.
+    """
+    multivariate_df = get_table('multivariate_lookup_table_MET_P2_52_1008')
+    multivariate_df = multivariate_df[multivariate_df['column_imputed'] == 'emp_length_cleaned']
+    bin_edges_with_mode_values = json.loads(multivariate_df['groups_with_corresponding_values'].values[0])
+
+    bins = []
+    mode_values = []
+    for bin_range, mode in bin_edges_with_mode_values:
+        lower, upper = map(float, bin_range.split('-'))
+        bins.append((lower, upper))
+        mode_values.append(mode)
+
+    def get_mode_for_income(income: float) -> int:
+        for i, (lower, upper) in enumerate(bins):
+            if lower <= income <= upper:
+                return mode_values[i]
+
+    df['emp_length_imputed'] = df.apply(
+        lambda row: get_mode_for_income(row['annual_inc']) if pd.isna(row['emp_length_cleaned']) else row['emp_length_cleaned'],
+        axis=1
+    )
+    return df
+
+def process_emp_length(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'emp_length' column by cleaning the strings and imputing missing values with the mode of each income bin.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'emp_length' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'emp_length' column.
+    """
+    df = clean_emp_length_values(df, col_name='emp_length')
+    df = impute_emp_length_for_processing(df)
+    return df
+
+# process home_ownership
+def process_home_ownership(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'home_ownership' column by mapping the values to a more meaningful representation.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'home_ownership' column to be processed
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'home_ownership' column
+    """
+    df = encode_cols_for_processing(df, 'home_ownership', 'onehot')
+    return df
+
+# process annual_inc_joint
+
+def process_annual_inc_joint(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'annual_inc_joint' column by cleaning the strings and imputing missing values.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'annual_inc_joint' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'annual_inc_joint' column.
+    """
+    df = clean_annual_inc_joint(df)
+    lookup_df = get_table('lookup_table_MET_P2_52_1008')
+    impute_value = lookup_df[lookup_df['Column'] == 'annual_inc_joint']['Encoded'].values[0]
+    df['annual_inc_joint_imputed'] = df['annual_inc_joint_log'].fillna(impute_value)
+    return df 
+
+# process verification_status
+def process_verification_status(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'verification_status' column by mapping the values to a more meaningful representation.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'verification_status' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'verification_status' column.
+    """
+
+    df = encode_cols_for_processing(df, 'verification_status', 'onehot')
+    return df
+
+# process addr_state
+def process_addr_state(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'addr_state' column by mapping the values to a more meaningful representation.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'addr_state' column to be processed.
+    
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'addr_state' column.
+    """
+
+    df = encode_cols_for_processing(df, 'addr_state', 'label')
+    return df
+
+# process avg_cur_bal 
+def process_avg_cur_bal(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    applying boxcox using the fitted lambda value.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'avg_cur_bal' column to be processed
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'avg_cur_bal' column.
+    """
+    df = apply_boxcox_for_processing(df, 'avg_cur_bal')
+    return df
+
+# process tot_cur_bal
+def process_tot_cur_bal(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    applying boxcox using the fitted lambda value.
+    
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'tot_cur_bal' column to be processed
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'tot_cur_bal' column.
+    """
+    df = apply_boxcox_for_processing(df, 'tot_cur_bal')
+    return df
+
+# process loan_status
+def process_loan_status(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'loan_status' column by mapping the values to a more meaningful representation.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'loan_status' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'loan_status' column.
+    """
+    df = encode_cols_for_processing(df, 'loan_status', 'onehot')
+    return df
+
+# process state column
+def process_state(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'state' column by mapping the values to a more meaningful representation.
+    
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'state' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'state' column.
+    """
+
+    df = encode_cols_for_processing(df, 'state', 'label')
+    return df
+
+# process int_rate
+def impute_int_rate_for_processing(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Impute missing values in the 'int_rate' column with the mean value of corresponding grade value.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'int_rate' column.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with imputed 'int_rate' values.
+    """
+    multivariate_df = get_table('multivariate_lookup_table_MET_P2_52_1008')
+    multivariate_df = multivariate_df[multivariate_df['column_imputed'] == 'int_rate_log']
+    grade_mean_int_rate = json.loads(multivariate_df['groups_with_corresponding_values'].values[0])
+
+    def get_mean_for_grade(grade: int) -> float:
+        for k, v in grade_mean_int_rate:
+            if k == grade:
+                return v
+
+    df['int_rate_imputed'] = df.apply(
+        lambda row: get_mean_for_grade(row['grade']) if pd.isna(row['int_rate_log']) else row['int_rate_log'],
+        axis=1
+    )
+
+    return df
+
+
+def process_int_rate(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'int_rate' column by converting it to a numeric type and scaling it to a
+    more meaningful range.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'int_rate' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'int_rate' column.
+    """
+
+    df = handle_outliers_of_int_rate(df)
+    df = impute_int_rate_for_processing(df)
+    return df
+
+# process pymnt_plan
+def process_pymnt_plan(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'pymnt_plan' column by mapping the values to a more meaningful representation.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'pymnt_plan' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'pymnt_plan' column.
+    """
+    df = encode_cols_for_processing(df, 'pymnt_plan', 'label')
+    return df
+
+# process type
+def process_type(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    This function cleans the 'type' column of the given DataFrame by standardizing the column values and one hot encoding them.
+
+    Args:
+    - df (pd.DataFrame): The input DataFrame.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the cleaned 'type' column.
+    """
+    df = standardize_loan_type(df, 'type')
+    df = encode_cols_for_processing(df, 'type_standardized', 'onehot')
+    return df
+
+# process purpose
+def process_purpose(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    This function processes the 'purpose' column of the given DataFrame by one hot encoding them.
+
+    Args:
+    - df (pd.DataFrame): The input DataFrame.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the cleaned 'purpose' column.
+    """
+    df = encode_cols_for_processing(df, 'purpose', 'onehot')
+    return df
+
+# process description
+def process_description(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the 'description' column by imputing missing values.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the 'description' column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed 'description' column.
+    """
+    lookup_df = get_table('lookup_table_MET_P2_52_1008')
+    impute_value = lookup_df[lookup_df['Column'] == 'description']['Encoded'].values[0]
+    df['description_imputed'] = df['description'].fillna(impute_value)
+    return df 
+
+def process_messages(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process the messages column by removing any non-alphanumeric characters and converting it to lowercase.
+
+    Args:
+    - df (pd.DataFrame): The DataFrame containing the messages column to be processed.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with the processed messages column.
+    """
+    # tidy up the column names
+    processed_df = tidy_up_columns(df)
+
+    # set the index
+    processed_df = set_index(df=processed_df, col_name='customer_id')
+
+    # Remove duplicates
+    processed_df = drop_duplicates(processed_df)
+
+    # Clean 'emp_title' column
+    processed_df = clean_emp_title(processed_df)
+
+    # Clean 'emp_length' column
+    processed_df = process_emp_length(processed_df)
+
+    # Clean 'home_ownership' column
+    processed_df = process_home_ownership(processed_df)
+
+    # clean 'annual_inc' column
+    processed_df = clean_annual_inc(processed_df)
+
+    # clean 'annual_inc_joint' column
+    processed_df = process_annual_inc_joint(processed_df)
+    
+    # clean 'verification_status' column
+    processed_df = process_verification_status(processed_df)
+
+    # clean 'addr_state' column
+    processed_df = process_addr_state(processed_df)
+
+    # process 'avg_cur_bal' column
+    processed_df = process_avg_cur_bal(processed_df)
+
+    # process 'tot_cur_bal' column
+    processed_df = process_tot_cur_bal(processed_df)
+
+    # process 'loan_status' column
+    processed_df = process_loan_status(processed_df)
+
+    # process 'loan_amount' column
+    processed_df = clean_loan_amount(processed_df)
+
+    # process 'state' column
+    processed_df = process_state(processed_df)
+
+    # process 'funded_amount' column
+    processed_df = clean_funded_amount(processed_df)
+
+    # process 'term' column
+    processed_df = clean_term(processed_df)
+
+    # process 'int_rate' column
+    processed_df = process_int_rate(processed_df)
+
+    # process 'issue_date' column
+    processed_df = clean_issue_date(processed_df)
+
+    # process 'pymnt_plan' column
+    processed_df = process_pymnt_plan(processed_df)
+
+    # process 'type' column
+    processed_df = process_type(processed_df)
+
+    # process 'purpose' column
+    processed_df = process_purpose(processed_df)
+
+    # process 'description' column
+    processed_df = process_description(processed_df)
+
+    # Add month column
+    processed_df = add_month_col(processed_df)
+
+    # Add salary can cover loan amount
+    processed_df = can_salary_cover(processed_df)
+
+    # Add letter grade column
+    processed_df = add_letter_grade(processed_df)
+
+    # Calculate installment per month
+    processed_df = calculate_installment_per_month(processed_df)
+
+    # normalize numeric columns
+    processed_df = normalize_numeric_cols(processed_df, is_fit=True)
+
+    # Bonus task
+    processed_df = do_bonus_task(processed_df)
+
+    # keep  only the columns we need
+    processed_df = keep_wanted_cols(processed_df)
+
+    # Rename columns
+    processed_df = rename_columns(processed_df)
+
+    return processed_df
 
 # if __name__ == "__main__":
 
-#     dataset_path = '../data/dataset/fintech_data_29_52_1008.csv'
-#     df, global_lookup_table = clean_data(dataset_path=dataset_path)
+#     dataset_path = './data/dataset/fintech_data_29_52_1008.csv'
+#     _ = clean_data(dataset_path=dataset_path)
