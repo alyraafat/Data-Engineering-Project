@@ -4,6 +4,7 @@ from cleaning import clean_data
 from db import save_to_db
 from run_producer import start_producer, stop_container
 from consumer import consume, start_consumer
+import time
 
 def main():
     kafka_url = 'kafka:9092'
@@ -35,6 +36,18 @@ def main():
     
     stop_container(producer_id)
 
+
 if __name__ == '__main__':
-    main()
+    num_tries = 1
+    while num_tries <= 5:
+        try:
+            main()
+            break
+        except Exception as e:
+            print(e)
+            num_tries += 1
+            print(f'Try {num_tries} failed. Retrying...')
+            time.sleep(5)
+    if num_tries > 5:
+        print(f'All {num_tries} tries failed. Exiting...')
 

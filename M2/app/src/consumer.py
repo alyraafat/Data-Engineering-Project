@@ -6,12 +6,15 @@ from typing import Tuple
 from db import append_to_table
 
 
-def start_consumer(topic_name: str='m2_topic') -> None:
+def start_consumer(topic_name: str='m2_topic') -> KafkaConsumer:
     """
     Start a Kafka consumer to listen for messages on a specified topic.
 
     Args:
     - topic_name (str): Name of the topic to listen for messages on.
+
+    Returns:
+    - KafkaConsumer: Kafka consumer object
     """
     consumer = KafkaConsumer(
         topic_name,
@@ -31,19 +34,19 @@ def consume(consumer: KafkaConsumer) -> Tuple[pd.DataFrame, pd.DataFrame]:
     Returns:
     - Tuple of two DataFrames: cleaned messages and lookup table
     """
+    while True:
+        messages_all = consumer.poll()
+        for _, messages in messages_all.items():
+            for message in messages:
+                print(f"Received: {message.value}")
+                if message.value == 'EOF':
+                    print("Received EOF. Exiting.")
+                    consumer.close()
+                    return
+                else:
+                    df = pd.DataFrame([message.value])
+                    processed_df = process_messages(df)
+                    append_to_table(processed_df, 'fintech_data_MET_P2_52_1008_clean')
+                    print(processed_df)
     
-    for message in consumer:
-        print(f"Received: {message.value}")
-        if message.value == 'EOF':
-            print("Received EOF. Exiting.")
-            break
-        else:
-            # df = pd.concat([df,pd.DataFrame([message.value])], ignore_index=True)
-            df = pd.DataFrame([message.value])
-            processed_df = process_messages(df)
-            append_to_table(processed_df, 'fintech_data_MET_P2_52_1008_clean')
-            print(processed_df)
-    consumer.close()
-    # messages_cleaned_df = process_messages(df)
-    # return messages_cleaned_df
 
