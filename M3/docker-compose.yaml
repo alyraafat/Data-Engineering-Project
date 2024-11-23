@@ -1,0 +1,35 @@
+version: "3.9"
+services:
+  spark:
+    image: spark_img:latest
+    container_name: spark_container
+    ports:
+      - "4040:4040" # Map Spark Web UI port
+      - "8888:8888" # Map Jupyter Notebook port
+    # command: >
+    #   jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+  pgdatabase:
+    image: postgres:13
+    container_name: pgdatabase
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: testdb
+    ports:
+      - 5454:5432
+    volumes:
+      - ./volumes/data_postgres:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: root@root.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    ports:
+      - 8090:80
+    depends_on:
+      - pgdatabase
+    restart: on-failure
+    volumes:
+      - ./volumes/pgadmin_data:/var/lib/pgadmin

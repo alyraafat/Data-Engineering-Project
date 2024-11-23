@@ -29,18 +29,19 @@ def get_table(table_name: str) -> pd.DataFrame:
     Returns:
     - pd.DataFrame: Data from the specified table.
     """
-    if(engine.connect()):
-        print("Connected to database")
-        try:
-            with engine.connect() as conn, conn.begin(): 
-                print(f"Reading {table_name} from database")
-                df = pd.read_sql_table(table_name, conn)
-                print(f"Done reading {table_name} from database")
-        except:
-            print(f"Failed to read {table_name} from database")
-            df = pd.read_csv(f'./data/cleaned_dataset/{table_name}.csv')
-    else:
-        df = pd.read_csv(f'./data/cleaned_dataset/{table_name}.csv')
+    # if(engine.connect()):
+    #     print("Connected to database")
+    #     try:
+    #         with engine.connect() as conn, conn.begin(): 
+    #             print(f"Reading {table_name} from database")
+    #             df = pd.read_sql_table(table_name, conn)
+    #             print(f"Done reading {table_name} from database")
+    #     except:
+    #         print(f"Failed to read {table_name} from database")
+    #         df = pd.read_csv(f'./data/cleaned_dataset/{table_name}.csv')
+    # else:
+    #     df = pd.read_csv(f'./data/cleaned_dataset/{table_name}.csv')
+    df = pd.read_csv(f'./data/cleaned_dataset/{table_name}.csv')
     return df
     
 def append_to_table(df: pd.DataFrame, table_name: str) -> None:
