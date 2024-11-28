@@ -6,6 +6,9 @@ services:
     ports:
       - "4040:4040" # Map Spark Web UI port
       - "8888:8888" # Map Jupyter Notebook port
+    volumes:
+      - ./volumes/work:/home/jovyan/cleaned_data/
+      - ./volumes/work:/home/jovyan/cleaned_data/
     # command: >
     #   jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
   pgdatabase:
