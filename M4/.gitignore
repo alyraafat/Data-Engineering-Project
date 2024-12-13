@@ -1,0 +1,8 @@
+**/__pycache__/
+app/logs/
+app/m4_postgres/
+app/config/
+app/plugins/
+.env
+app/data/
+dummy.ipynb

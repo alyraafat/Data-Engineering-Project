@@ -8,7 +8,6 @@ from bs4 import BeautifulSoup
 import json
 from sqlalchemy import create_engine
 import pickle as pkl
-from db import get_table
 
 
 def load_data(path: str) -> pd.DataFrame:
@@ -1000,7 +999,7 @@ def normalize_columns(df: pd.DataFrame, numeric_cols: List[str], norm_type: str=
 
     if not is_fit:
         df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-        with open('./data/cleaned_dataset/scaler.pkl', 'wb') as f:
+        with open('./data/scaler.pkl', 'wb') as f:
             pkl.dump(scaler, f)
     else:
         with open('./data/cleaned_dataset/scaler.pkl', 'rb') as f:

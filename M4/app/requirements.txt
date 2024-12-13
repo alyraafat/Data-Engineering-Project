@@ -4,9 +4,8 @@ PyYAML
 requests
 SQLAlchemy
 psycopg2-binary
-bs4
 scikit-learn
 scipy
-docker
-kafka-python
 fastparquet
+dash
+plotly

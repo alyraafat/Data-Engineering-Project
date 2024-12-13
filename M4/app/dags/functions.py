@@ -2,7 +2,7 @@ from cleaning import *
 from sqlalchemy import create_engine
 
 
-engine = create_engine('postgresql://root:root@pgdatabase:5432/testdb')
+engine = create_engine('postgresql://root:root@pgdatabase:5432/m4_etl')
 
 
 def extract_clean(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -99,7 +99,7 @@ def extract_clean(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Calculate installment per month
     df = calculate_installment_per_month(df)
 
-    df.to_parquet('./fintech_clean.parquet')
+    df.to_parquet('./data/fintech_clean.parquet')
 
     return df, global_lookup_table
 
@@ -119,18 +119,19 @@ def transform(cleaned_dataset_path: str) -> pd.DataFrame:
     # Normalize numeric columns
     df = normalize_numeric_cols(df)
 
-    df.to_parquet('./fintech_transformed.parquet')
+    df.to_parquet('./data/fintech_transformed.parquet')
 
     return df
 
-def load_to_db(cleaned_df: pd.DataFrame, table_name: str):
+def load_to_db(dataset_path: str, table_name: str):
     """
     Load the cleaned dataset to the database.
 
     Args:
-    - cleaned_df (pd.DataFrame): The cleaned DataFrame to load.
+    - dataset_path (str): The path to the cleaned dataset.
     - table_name (str): The name of the table to create in the database.
     """
+    cleaned_df = pd.read_parquet(dataset_path)
     if(engine.connect()):
         print('Connected to Database')
         try:
@@ -138,8 +139,6 @@ def load_to_db(cleaned_df: pd.DataFrame, table_name: str):
             # cleaned.to_sql(table_name, con=engine, if_exists='fail')
             cleaned_df.to_sql(table_name, con=engine, if_exists='replace')
             print('Done writing to database')
-        except ValueError as vx:
-            print('Cleaned Table already exists.')
         except Exception as ex:
             print(ex)
     else:
