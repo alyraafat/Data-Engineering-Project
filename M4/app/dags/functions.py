@@ -87,18 +87,6 @@ def extract_clean(dataset_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Clean 'description' column
     df = clean_description(df)
 
-    # Add month column
-    df = add_month_col(df)
-
-    # Check if salary can cover loan amount
-    df = can_salary_cover(df)
-
-    # Add letter grade column
-    df = add_letter_grade(df)
-
-    # Calculate installment per month
-    df = calculate_installment_per_month(df)
-
     df.to_parquet('./data/fintech_clean.parquet')
 
     return df, global_lookup_table
@@ -116,8 +104,23 @@ def transform(cleaned_dataset_path: str) -> pd.DataFrame:
     # Load the cleaned data
     df = pd.read_parquet(cleaned_dataset_path)
 
+    # Add month column
+    df = add_month_col(df)
+
+    # Check if salary can cover loan amount
+    df = can_salary_cover(df)
+
+    # Add letter grade column
+    df = add_letter_grade(df)
+
+    # Calculate installment per month
+    df = calculate_installment_per_month(df)
+
     # Normalize numeric columns
     df = normalize_numeric_cols(df)
+
+    # Bonus task
+    df = do_bonus_task(df)
 
     df.to_parquet('./data/fintech_transformed.parquet')
 

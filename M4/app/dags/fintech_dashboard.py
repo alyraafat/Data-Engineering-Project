@@ -40,15 +40,15 @@ def create_dashboard(dataset_path: str):
             value=df['issue_date_cleaned'].dt.year.min(),
             placeholder="Select a year",
         ),
-        dcc.RadioItems(
-            id="aggregation-method",
-            options=[
-                {"label": "Number of Loans/Month", "value": "count"},
-                {"label": "Total Number of Loans/Month", "value": "sum"}
-            ],
-            value="count",  
-            inline=True, 
-        ),
+        # dcc.RadioItems(
+        #     id="aggregation-method",
+        #     options=[
+        #         {"label": "Total Number of Loans/Month", "value": "count"},
+        #         {"label": "Total Loan Amount/Month", "value": "sum"}
+        #     ],
+        #     value="count",  
+        #     inline=True, 
+        # ),
         dcc.Graph(id="loan-trend-graph"),
         
 
@@ -139,19 +139,20 @@ def plot_q3(app: Dash, df: pd.DataFrame):
         Output("loan-trend-graph", "figure"),
         [
             Input("year-filter", "value"),
-            Input("aggregation-method", "value")
+            # Input("aggregation-method", "value")
         ]
     )
-    def update_loan_trend_graph(selected_year: int, aggregation_method: str):
+    def update_loan_trend_graph(selected_year: int):
         filtered_df = df[df["issue_date_cleaned"].dt.year == selected_year]
-        if aggregation_method == "count":
-            y_axis_label = "Number of Loans"
-        else:
-            y_axis_label = "Total Loan Amount"
+        y_axis_label = "Total Number of Loans"
+        # if aggregation_method == "count":
+        #     y_axis_label = "Total Number of Loans"
+        # else:
+        #     y_axis_label = "Total Loan Amount"
 
         monthly_trend = (
             filtered_df.groupby(filtered_df["issue_date_cleaned"].dt.month)
-            .agg(loan_trend=("loan_amount", aggregation_method))
+            .agg(loan_trend=("loan_amount", "count"))
             .reset_index()
             .rename(columns={"issue_date_cleaned": "month"})
         )

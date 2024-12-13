@@ -9,3 +9,4 @@ scipy
 fastparquet
 dash
 plotly
+bs4
