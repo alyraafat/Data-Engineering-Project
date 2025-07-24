@@ -6,3 +6,4 @@ app/plugins/
 .env
 app/data/
 dummy.ipynb
+*.mp4

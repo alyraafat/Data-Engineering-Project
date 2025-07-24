@@ -17,12 +17,12 @@ def create_dashboard(dataset_path: str):
 
     
         # 1st graph
-        html.H3("1. Distribution of loan amounts across different grades:"),
+        html.H3("1. What is the distribution of loan amounts across different grades?"),
         dcc.Graph(id="grade-loan-graph"), 
 
 
         # 2nd graph
-        html.H3("2. Loan Amount vs Annual Income Across States:"),
+        html.H3("2. How does the loan amount relate to annual income across states?"),
         dcc.Dropdown(
             id="state-filter",
             options=[{"label": "All", "value": "all"}] + [{"label": state, "value": state} for state in df['state'].unique()],
@@ -33,7 +33,7 @@ def create_dashboard(dataset_path: str):
         
 
         # 3rd graph
-        html.H3("3. Trend of loan issuance over the months, filtered by year:"),
+        html.H3("3. What is the trend of loan issuance over the months (number of loans per month), filtered by year?"),
         dcc.Dropdown(
             id="year-filter",
             options=[{"label": year, "value": year} for year in np.sort(df['issue_date_cleaned'].dt.year.unique())],
@@ -53,7 +53,7 @@ def create_dashboard(dataset_path: str):
         
 
         # 4th graph
-        html.H3("4. States with the highest average loan amount:"),
+        html.H3("4. Which states have the highest average loan amount?"),
         # html.Div([
         #     html.Label("Enter the number of top states to display:"),
         #     dcc.Input(
@@ -69,7 +69,7 @@ def create_dashboard(dataset_path: str):
 
 
         # 5th graph
-        html.H3("5. Percentage distribution of loan grades:"),
+        html.H3("5. What is the percentage distribution of loan grades in the dataset?"),
         dcc.Graph(id="grade-distribution-graph"),
     ])
 
@@ -99,7 +99,7 @@ def plot_q1(app: Dash, df: pd.DataFrame):
             x="letter_grade",  
             y="loan_amount",  
             title="Distribution of Loan Amounts Across Grades",
-            labels={"letter_grade": "Grade", "loan_amount": "Loan Amount"},
+            labels={"letter_grade": "Loan Letter Grade", "loan_amount": "Loan Amount"},
             color="letter_grade",  
             template="plotly_white", 
         )
@@ -218,10 +218,11 @@ def plot_q4_part2(app: Dash, df: pd.DataFrame):
             locations="state",  
             locationmode="USA-states",  
             color="average_loan_amount",  
-            color_continuous_scale="Viridis", 
+            color_continuous_scale="Blues", 
             scope="usa", 
             labels={"average_loan_amount": "Avg Loan Amount"},
             title="Choropleth Map of Average Loan Amount by State",
+            height=600,
         )
         fig.update_layout(
             geo=dict(bgcolor="rgba(0,0,0,0)"), 
@@ -249,11 +250,12 @@ def plot_q5(app: Dash, df: pd.DataFrame):
             template="plotly_white",  
         )
         fig.update_layout(
-            xaxis_title="Loan Grade",
+            xaxis_title="Loan Letter Grade",
             yaxis_title="Percentage (%)",
             showlegend=False, 
         )
         return fig
+
     
 
     
